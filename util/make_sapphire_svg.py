@@ -4,17 +4,27 @@
 #   Don Cross <cosinekitty@gmail.com>
 #   https://github.com/cosinekitty/sapphire
 #
-#   Generates panel artwork svg files for all Sapphire modules
-#   except for Elastika and Tube Unit.
-#   Combining panel generation for multiple modules into one
-#   script makes it easier to maintain a common style across modules.
+#   Generates panel artwork svg files for all Sapphire modules.
 #
 import sys
 import math
+import enum
 from typing import List, Tuple, Dict
 from svgpanel import *
 from sapphire import *
 
+
+previewComponentPositions = ((len(sys.argv) > 1) and (sys.argv[1] == 'preview'))
+
+
+@enum.unique
+class Target(enum.Enum):
+    VcvRack = 1
+    Lite = 2
+
+class TargetError(Error):
+    def __init__(self, target:Target):
+        Error.__init__(self, 'Unsupported target platform: ' + target.name)
 
 def Print(message:str) -> int:
     print('make_sapphire_svg.py:', message)
@@ -24,6 +34,24 @@ def Print(message:str) -> int:
 def Save(panel:Panel, filename:str) -> int:
     panel.save(filename)
     return 0
+
+
+def SvgFileName(name:str, target:Target) -> str:
+    if target == Target.VcvRack:
+        dir = 'res'
+    elif target == Target.Lite:
+        dir = 'export'
+    else:
+        raise TargetError(target)
+    return '../{}/{}.svg'.format(dir, name)
+
+
+def cdict_name(name:str, target:Target) -> str:
+    if target == Target.VcvRack:
+        return name
+    if target == Target.Lite:
+        return name + '_export'
+    raise TargetError(target)
 
 
 def Gradient(y1: float, y2: float, color1: str, color2: str, id: str) -> Element:
@@ -87,6 +115,21 @@ def AddControlGroup(pl: Element, controls: ControlLayer, font: Font, symbol: str
     pl.append(Path(t, CONNECTOR_LINE_STYLE))
 
 
+def SymbolArtPath(text:str, x:float, y:float, id:str = '', ds:float = 1.25) -> Path:
+    path = ''
+    if text == '+':
+        path += Move(x-ds, y)
+        path += Line(x+ds, y)
+        path += Move(x, y-ds)
+        path += Line(x, y+ds)
+    elif text == '-':
+        path += Move(x-ds, y)
+        path += Line(x+ds, y)
+    else:
+        raise Error('Undefined symbol: "{}"'.format(text))
+    return Path(path, SYMBOL_TEXT_STYLE, id, 'none')
+
+
 def GenerateChaosOperatorsPanel(cdict:Dict[str,ControlLayer]) -> int:
     PANEL_WIDTH = 6
     name = 'chaops'
@@ -96,7 +139,7 @@ def GenerateChaosOperatorsPanel(cdict:Dict[str,ControlLayer]) -> int:
     defs = Element('defs')
     pl.append(defs)
     panel.append(pl)
-    cdict[name] = controls = ControlLayer()
+    cdict[name] = controls = ControlLayer(panel)
 
     xmid = panel.mmWidth / 2
     dxMemoryButton = 8.0
@@ -163,18 +206,6 @@ def GenerateChaosOperatorsPanel(cdict:Dict[str,ControlLayer]) -> int:
         path += ArrowHead(xRightPanel, yRecallLine)
         return LineArtPath(path, 'recall_line_art')
 
-    def HorizontalLine(x1:float, x2:float, y:float, id:str) -> Path:
-        path = ''
-        path += Move(x1, y)
-        path += Line(x2, y)
-        return Path(path, CONNECTOR_LINE_STYLE, id, 'none')
-
-    def VerticalLine(x:float, y1:float, y2:float, id:str) -> Path:
-        path = ''
-        path += Move(x, y1)
-        path += Line(x, y2)
-        return Path(path, CONNECTOR_LINE_STYLE, id, 'none')
-
     def AddGradient(y1:float, y2:float, color1:str, color2:str, id:str) -> None:
         gradientId = id + '_gradient'
         artworkId  = id + '_artwork'
@@ -191,9 +222,7 @@ def GenerateChaosOperatorsPanel(cdict:Dict[str,ControlLayer]) -> int:
         pl.append(StoreLineArt())
         pl.append(RecallLineArt())
         pl.append(CenteredControlTextPath(font, 'MEMORY', xmid, yMemorySelect - dyButtonText))
-        pl.append(CenteredControlTextPath(font, 'FREEZE', xmid, yFreezeButton - dyButtonText))
         pl.append(CenteredControlTextPath(font, 'MORPH',  xmid, yMorph - dyButtonText))
-        pl.append(HorizontalLine(xmid - dxFreezePortButton, xmid + dxFreezePortButton, yFreezeButton, 'freeze_line_art'))
         pl.append(VerticalLine(xmid, yMemorySelect, yMemoryDisplay, 'memory_vline'))
         AddFlatControlGroup(pl, controls, xmid, yMemorySelect, 'memsel')
         controls.append(Component('store_button',   xStore,  yMemoryButton))
@@ -201,8 +230,7 @@ def GenerateChaosOperatorsPanel(cdict:Dict[str,ControlLayer]) -> int:
         controls.append(Component('store_trigger',  xStore,  yMemoryTriggerPorts))
         controls.append(Component('recall_trigger', xRecall, yMemoryTriggerPorts))
         controls.append(Component('memory_address_display', xmid, yMemoryDisplay))
-        controls.append(Component('freeze_button', xmid + dxFreezePortButton, yFreezeButton))
-        controls.append(Component('freeze_input',  xmid - dxFreezePortButton, yFreezeButton))
+        AddToggleGroup(pl, controls, font, 'FREEZE', 'freeze', xmid - dxFreezePortButton, xmid + dxFreezePortButton, yFreezeButton, dyButtonText, 'freeze_toggle_group')
         AddFlatControlGroup(pl, controls, xmid, yMorph, 'morph')
     return Save(panel, svgFileName)
 
@@ -215,7 +243,7 @@ def GenerateChaosPanel(cdict:Dict[str,ControlLayer], name: str) -> int:
     defs = Element('defs')
     pl.append(defs)
     panel.append(pl)
-    cdict[name] = controls = ControlLayer()
+    cdict[name] = controls = ControlLayer(panel)
     with Font(SAPPHIRE_FONT_FILENAME) as font:
         pl.append(BorderRect(PANEL_WIDTH, SAPPHIRE_PANEL_COLOR, SAPPHIRE_BORDER_COLOR))
         pl.append(CenteredGemstone(panel))
@@ -274,7 +302,7 @@ def GenerateTinToutPanel(cdict:Dict[str,ControlLayer], name:str, dir:str, ioLabe
     panel.append(pl)
     defs = Element('defs')
     pl.append(defs)
-    cdict[name] = controls = ControlLayer()
+    cdict[name] = controls = ControlLayer(panel)
     xmid = panel.mmWidth/2
     inputPortY1 = 25.0
     inputPortDY = 10.0
@@ -373,7 +401,7 @@ def GenerateNucleusPanel(cdict:Dict[str,ControlLayer]) -> int:
     panel.append(defs)
     pl = Element('g', 'PanelLayer')
     panel.append(pl)
-    cdict[name] = controls = ControlLayer()
+    cdict[name] = controls = ControlLayer(panel)
     xmid = panel.mmWidth / 2
     dxPort = 12.5               # horizontal distance between X, Y, Z columns.
     yIn = 58.0                  # vertical position of center of input X, Y, Z ports.
@@ -485,7 +513,7 @@ def GeneratePolynucleusPanel(cdict:Dict[str,ControlLayer]) -> int:
     panel.append(defs)
     pl = Element('g', 'PanelLayer')
     panel.append(pl)
-    cdict[name] = controls = ControlLayer()
+    cdict[name] = controls = ControlLayer(panel)
     xmid = panel.mmWidth / 2
     dxKnob = 25.0
     xKnobLeft  = xmid - dxKnob
@@ -587,7 +615,7 @@ def GenerateHissPanel(cdict:Dict[str,ControlLayer]) -> int:
     panel.append(pl)
     defs = Element('defs')
     pl.append(defs)
-    cdict['hiss'] = controls = ControlLayer()
+    cdict['hiss'] = controls = ControlLayer(panel)
     xmid = panel.mmWidth / 2
     yChannelDisplay = 14.75
     ytop = 27.0
@@ -733,7 +761,7 @@ def GenerateStereoInputLabels(svgFileName:str, leftPortLabel:str, rightPortLabel
     return Save(panel, svgFileName)
 
 
-def GenerateGalaxyPanel(cdict:Dict[str,ControlLayer], name:str) -> int:
+def GenerateGalaxyPanel(cdict:Dict[str,ControlLayer], name:str, target:Target) -> int:
     table:List[Tuple[str, str]] = [
         ('replace',     'REPLACE'),
         ('brightness',  'BRIGHT'),
@@ -742,127 +770,170 @@ def GenerateGalaxyPanel(cdict:Dict[str,ControlLayer], name:str) -> int:
         ('mix',         'MIX')
     ]
 
-    svgFileName = '../res/{}.svg'.format(name)
+    svgFileName = SvgFileName(name, target)
     PANEL_WIDTH = 6
     panel = Panel(PANEL_WIDTH)
     pl = Element('g', 'PanelLayer')
     panel.append(pl)
     defs = Element('defs')
     pl.append(defs)
-    cdict[name] = controls = ControlLayer()
+    cdict[cdict_name(name, target)] = controls = ControlLayer(panel)
     xmid = panel.mmWidth / 2
     dxPortFromCenter = 6.0
 
-    yRow = FencePost(22.0, 114.0, 7)
+    if target == Target.VcvRack:
+        yRow = FencePost(22.0, 114.0, 7)
+        dyText = 6.5
+        dyTopArt = 9.5
+    elif target == Target.Lite:
+        yRow = FencePost(10.0, 129.0, 7)
+        dyText = 8.5
+        dyTopArt = 14.0
+    else:
+        raise TargetError(target)
     yInPort  = yRow.value(0)
     yOutPort = yRow.value(6)
     dyGrad = 6.0
-    dyText = 6.5
 
     with Font(SAPPHIRE_FONT_FILENAME) as font:
         pl.append(BorderRect(PANEL_WIDTH, SAPPHIRE_PANEL_COLOR, SAPPHIRE_BORDER_COLOR))
         pl.append(ModelNamePath(panel, font, name))
         pl.append(CenteredGemstone(panel))
 
-        y1 = yInPort - 9.5
-        y2 = yInPort + dyGrad
-        defs.append(Gradient(y1, y2, SAPPHIRE_MAGENTA_COLOR, SAPPHIRE_PANEL_COLOR, 'gradient_in'))
-        pl.append(ControlGroupArt(name, 'in_art', panel, y1, y2, 'gradient_in'))
+        if target == Target.VcvRack:
+            # Gradient for stereo input ports
+            y1 = yInPort - 9.5
+            y2 = yInPort + dyGrad
+            defs.append(Gradient(y1, y2, SAPPHIRE_MAGENTA_COLOR, SAPPHIRE_PANEL_COLOR, 'gradient_in'))
+            pl.append(ControlGroupArt(name, 'in_art', panel, y1, y2, 'gradient_in'))
 
-        y1 = yRow.value(1) - 9.5
+        # Controls gradient
+        y1 = yRow.value(1) - dyTopArt
         y2 = yRow.value(5) + dyGrad
         defs.append(Gradient(y1, y2, SAPPHIRE_AZURE_COLOR, SAPPHIRE_PANEL_COLOR, 'gradient_controls'))
         pl.append(ControlGroupArt(name, 'controls_art', panel, y1, y2, 'gradient_controls'))
 
-        y1 = yOutPort - 9.5
-        y2 = yOutPort + dyGrad
-        defs.append(Gradient(y1, y2, SAPPHIRE_EGGPLANT_COLOR, SAPPHIRE_PANEL_COLOR, 'gradient_out'))
-        pl.append(ControlGroupArt(name, 'out_art', panel, y1, y2, 'gradient_out'))
+        if target == Target.VcvRack:
+            # Gradient for stereo output ports
+            y1 = yOutPort - 9.5
+            y2 = yOutPort + dyGrad
+            defs.append(Gradient(y1, y2, SAPPHIRE_EGGPLANT_COLOR, SAPPHIRE_PANEL_COLOR, 'gradient_out'))
+            pl.append(ControlGroupArt(name, 'out_art', panel, y1, y2, 'gradient_out'))
 
-        pl.append(CenteredControlTextPath(font, 'IN',  xmid, yInPort - dyText))
-        pl.append(CenteredControlTextPath(font, 'OUT', xmid, yOutPort - dyText))
-
-        controls.append(Component('audio_left_input',   xmid - dxPortFromCenter, yInPort ))
-        controls.append(Component('audio_right_input',  xmid + dxPortFromCenter, yInPort ))
-        controls.append(Component('audio_left_output',  xmid - dxPortFromCenter, yOutPort))
-        controls.append(Component('audio_right_output', xmid + dxPortFromCenter, yOutPort))
-
-        pl.append(HorizontalLinePath(xmid - dxPortFromCenter, xmid + dxPortFromCenter, yInPort))
-        pl.append(HorizontalLinePath(xmid - dxPortFromCenter, xmid + dxPortFromCenter, yOutPort))
+        if target == Target.VcvRack:
+            pl.append(CenteredControlTextPath(font, 'IN',  xmid, yInPort - dyText))
+            pl.append(CenteredControlTextPath(font, 'OUT', xmid, yOutPort - dyText))
+            controls.append(Component('audio_left_input',   xmid - dxPortFromCenter, yInPort ))
+            controls.append(Component('audio_right_input',  xmid + dxPortFromCenter, yInPort ))
+            controls.append(Component('audio_left_output',  xmid - dxPortFromCenter, yOutPort))
+            controls.append(Component('audio_right_output', xmid + dxPortFromCenter, yOutPort))
+            pl.append(HorizontalLinePath(xmid - dxPortFromCenter, xmid + dxPortFromCenter, yInPort))
+            pl.append(HorizontalLinePath(xmid - dxPortFromCenter, xmid + dxPortFromCenter, yOutPort))
 
         row = 1
         for (symbol, label) in table:
             y = yRow.value(row)
             pl.append(CenteredControlTextPath(font, label, xmid, y-dyText))
-            AddFlatControlGroup(pl, controls, xmid, y, symbol)
+            if target == Target.VcvRack:
+                AddFlatControlGroup(pl, controls, xmid, y, symbol)
+            elif target == Target.Lite:
+                AddLargeKnob(controls, pl, target, symbol + '_knob', xmid, y)
+            else:
+                raise TargetError(target)
             row += 1
     return Save(panel, svgFileName)
 
 
-def GenerateGravyPanel(cdict:Dict[str,ControlLayer], name:str) -> int:
+def GenerateGravyPanel(cdict:Dict[str,ControlLayer], name:str, target:Target) -> int:
     table:List[Tuple[str, str]] = [
         ('frequency',   'FREQ'),
         ('resonance',   'RES'),
         ('mix',         'MIX'),
         ('gain',        'GAIN')
     ]
-    svgFileName = '../res/{}.svg'.format(name)
+    svgFileName = SvgFileName(name, target)
     PANEL_WIDTH = 6
     panel = Panel(PANEL_WIDTH)
     pl = Element('g', 'PanelLayer')
     panel.append(pl)
     defs = Element('defs')
     pl.append(defs)
-    cdict[name] = controls = ControlLayer()
+    cdict[cdict_name(name, target)] = controls = ControlLayer(panel)
     xmid = panel.mmWidth / 2
     dxPortFromCenter = 6.0
 
-    yRow = FencePost(22.0, 114.0, 7)
+    if target == Target.VcvRack:
+        yRow = FencePost(22.0, 114.0, 7)
+        dyText = 6.5
+        dyTextSwitch = 6.5
+        dyTopArt = 9.5
+        ySwitch  = yRow.value(5)
+    elif target == Target.Lite:
+        yRow = FencePost(10.0, 129.0, 7)
+        dyText = 8.5
+        dyTextSwitch = 5.0
+        dyTopArt = 14.0
+        ySwitch  = yRow.value(5) - 2.0
+    else:
+        raise TargetError(target)
+
     yInPort  = yRow.value(0)
-    ySwitch  = yRow.value(5)
     yOutPort = yRow.value(6)
     dyGrad = 6.0
-    dyText = 6.5
 
     with Font(SAPPHIRE_FONT_FILENAME) as font:
         pl.append(BorderRect(PANEL_WIDTH, SAPPHIRE_PANEL_COLOR, SAPPHIRE_BORDER_COLOR))
         pl.append(ModelNamePath(panel, font, name))
         pl.append(CenteredGemstone(panel))
 
-        y1 = yInPort - 9.5
-        y2 = yInPort + dyGrad
-        defs.append(Gradient(y1, y2, SAPPHIRE_MAGENTA_COLOR, SAPPHIRE_PANEL_COLOR, 'gradient_in'))
-        pl.append(ControlGroupArt(name, 'in_art', panel, y1, y2, 'gradient_in'))
+        if target == Target.VcvRack:
+            # Gradient for stereo input ports
+            y1 = yInPort - 9.5
+            y2 = yInPort + dyGrad
+            defs.append(Gradient(y1, y2, SAPPHIRE_MAGENTA_COLOR, SAPPHIRE_PANEL_COLOR, 'gradient_in'))
+            pl.append(ControlGroupArt(name, 'in_art', panel, y1, y2, 'gradient_in'))
 
-        y1 = yRow.value(1) - 9.5
+        # Controls gradient
+        y1 = yRow.value(1) - dyTopArt
         y2 = yRow.value(5) + dyGrad
         defs.append(Gradient(y1, y2, SAPPHIRE_AZURE_COLOR, SAPPHIRE_PANEL_COLOR, 'gradient_controls'))
         pl.append(ControlGroupArt(name, 'controls_art', panel, y1, y2, 'gradient_controls'))
 
-        y1 = yOutPort - 9.5
-        y2 = yOutPort + dyGrad
-        defs.append(Gradient(y1, y2, SAPPHIRE_EGGPLANT_COLOR, SAPPHIRE_PANEL_COLOR, 'gradient_out'))
-        pl.append(ControlGroupArt(name, 'out_art', panel, y1, y2, 'gradient_out'))
+        if target == Target.VcvRack:
+            # Gradient for stereo output ports.
+            y1 = yOutPort - 9.5
+            y2 = yOutPort + dyGrad
+            defs.append(Gradient(y1, y2, SAPPHIRE_EGGPLANT_COLOR, SAPPHIRE_PANEL_COLOR, 'gradient_out'))
+            pl.append(ControlGroupArt(name, 'out_art', panel, y1, y2, 'gradient_out'))
+            # Text labels for stereo IN/OUT ports.
+            pl.append(CenteredControlTextPath(font, 'IN',  xmid, yInPort  - dyText))
+            pl.append(CenteredControlTextPath(font, 'OUT', xmid, yOutPort - dyText))
+            # Stereo IN/OUT ports.
+            controls.append(Component('audio_left_input',   xmid - dxPortFromCenter, yInPort ))
+            controls.append(Component('audio_right_input',  xmid + dxPortFromCenter, yInPort ))
+            controls.append(Component('audio_left_output',  xmid - dxPortFromCenter, yOutPort))
+            controls.append(Component('audio_right_output', xmid + dxPortFromCenter, yOutPort))
 
-        pl.append(CenteredControlTextPath(font, 'IN',  xmid, yInPort  - dyText))
-        pl.append(CenteredControlTextPath(font, 'OUT', xmid, yOutPort - dyText))
+        # Text label for 3-way MODE switch (LP, BP, HP).
+        pl.append(CenteredControlTextPath(font, 'MODE',  xmid, ySwitch - dyTextSwitch))
+        # 3-way MODE switch (LP, BP, HP).
+        AddSwitch(controls, pl, target, 'mode_switch', xmid, ySwitch, 12.0, 4.0)
 
-        controls.append(Component('audio_left_input',   xmid - dxPortFromCenter, yInPort ))
-        controls.append(Component('audio_right_input',  xmid + dxPortFromCenter, yInPort ))
-        controls.append(Component('audio_left_output',  xmid - dxPortFromCenter, yOutPort))
-        controls.append(Component('audio_right_output', xmid + dxPortFromCenter, yOutPort))
-
-        pl.append(CenteredControlTextPath(font, 'MODE',  xmid, ySwitch - dyText))
-        controls.append(Component('mode_switch', xmid, ySwitch))
-
-        pl.append(HorizontalLinePath(xmid - dxPortFromCenter, xmid + dxPortFromCenter, yInPort))
-        pl.append(HorizontalLinePath(xmid - dxPortFromCenter, xmid + dxPortFromCenter, yOutPort))
+        if target == Target.VcvRack:
+            # Horizontal lines connecting stereo IN/OUT ports.
+            pl.append(HorizontalLinePath(xmid - dxPortFromCenter, xmid + dxPortFromCenter, yInPort))
+            pl.append(HorizontalLinePath(xmid - dxPortFromCenter, xmid + dxPortFromCenter, yOutPort))
 
         row = 1
         for (symbol, label) in table:
             y = yRow.value(row)
             pl.append(CenteredControlTextPath(font, label, xmid, y-dyText))
-            AddFlatControlGroup(pl, controls, xmid, y, symbol)
+            if target == Target.VcvRack:
+                AddFlatControlGroup(pl, controls, xmid, y, symbol)
+            elif target == Target.Lite:
+                AddLargeKnob(controls, pl, target, symbol + '_knob', xmid, y)
+            else:
+                raise TargetError(target)
             row += 1
     return Save(panel, svgFileName)
 
@@ -881,7 +952,7 @@ def GenerateSaucePanel(cdict:Dict[str,ControlLayer], name:str) -> int:
     panel.append(pl)
     defs = Element('defs')
     pl.append(defs)
-    cdict[name] = controls = ControlLayer()
+    cdict[name] = controls = ControlLayer(panel)
     xmid = panel.mmWidth / 2
 
     yRow = FencePost(22.0, 114.0, 7)
@@ -944,7 +1015,7 @@ def GenerateRotiniPanel(cdict:Dict[str,ControlLayer]) -> int:
     panel.append(pl)
     defs = Element('defs')
     pl.append(defs)
-    cdict[name] = controls = ControlLayer()
+    cdict[name] = controls = ControlLayer(panel)
     xmid = panel.mmWidth / 2
     NROWS = 7
     yRow = FencePost(22.0, 110.0, NROWS)
@@ -1000,7 +1071,7 @@ def GeneratePivotPanel(cdict:Dict[str,ControlLayer]) -> int:
     panel.append(pl)
     defs = Element('defs')
     pl.append(defs)
-    cdict[name] = controls = ControlLayer()
+    cdict[name] = controls = ControlLayer(panel)
     xmid = panel.mmWidth / 2
     yRow = 22.0
     dyGrad = 6.0
@@ -1095,7 +1166,7 @@ def GenerateSamPanel(cdict:Dict[str,ControlLayer]) -> int:
     panel.append(pl)
     defs = Element('defs')
     pl.append(defs)
-    cdict['sam'] = controls = ControlLayer()
+    cdict['sam'] = controls = ControlLayer(panel)
     yInput  = FencePost(25.0,  52.0, 4)
     yOutput = FencePost(88.0, 115.0, 4)     # cannot change - visually match Frolic/Glee
     dyArrowMargin = 10.0
@@ -1139,7 +1210,7 @@ def GeneratePopPanel(cdict:Dict[str,ControlLayer]) -> int:
     defs = Element('defs')
     pl.append(defs)
     panel.append(pl)
-    cdict[name] = controls = ControlLayer()
+    cdict[name] = controls = ControlLayer(panel)
     xmid = panel.mmWidth / 2
     syncDy = 16.0       # vertical distance between SYNC input port and TRIGGER output port
     ySpeedKnob = 26.0
@@ -1242,15 +1313,101 @@ def SaveControls(cdict:Dict[str, ControlLayer]) -> int:
     UpdateFileIfChanged('../src/sapphire_panel.cpp', text)
     return 0
 
-def PlaceElastikaControls(cdict:Dict[str, ControlLayer]) -> int:
-    # patch_elastika.py also does stuff to elastika.svg
-    # This is here because the code is in place here to generate the C++ map.
-    controls = cdict['elastika'] = ControlLayer()
-    controls.append(Component("fric_slider",         8.00,  46.00))
-    controls.append(Component("stif_slider",        19.24,  46.00))
-    controls.append(Component("span_slider",        30.48,  46.00))
-    controls.append(Component("curl_slider",        41.72,  46.00))
-    controls.append(Component("mass_slider",        52.96,  46.00))
+
+def ElastikaCoord(x:float, y:float) -> str:
+    return ' {:0.2f},{:0.2f}'.format(x, y)
+
+
+ELASTIKA_SLIDER_DX = 11.22
+ELASTIKA_SLIDER_YMID = 64.0
+
+
+def ElastikaPathForShape(n:int, target:Target) -> str:
+    # Make a string that looks like:
+    # "M 2.7,32.0 8.15,28.5 13.6,32.0 13.6,86.0 8.2,89.0 2.7,86.0 z"
+    # Start with "M" for absolute path.
+    if n == -1:
+        # The POWER hexagon is special: much smaller than the others.
+        x0 = 2*ELASTIKA_SLIDER_DX + 2.4
+        y0 = 90.0
+        h = 19.0
+    else:
+        # Follow with 6 coordinate pairs "x,y".
+        x0 = n*ELASTIKA_SLIDER_DX + 2.4
+        y0 = 32.0
+        if target == Target.VcvRack:
+            h = 54.0
+        elif target == Target.Lite:
+            h = 38.0
+        else:
+            raise TargetError(target)
+
+    p = 'M'
+    p += ElastikaCoord(x0, y0)
+    (dx, dy) = (ELASTIKA_SLIDER_DX/2.0, -3.5)
+    (x1, y1) = (x0 + dx, y0 + dy)
+    p += ElastikaCoord(x1, y1)
+    (x2, y2) = (x1 + dx, y0)
+    p += ElastikaCoord(x2, y2)
+    p += ElastikaCoord(x2, y2 + h)
+    p += ElastikaCoord(x1, y2 + h - dy)
+    p += ElastikaCoord(x0, y2 + h)
+    p += ' z'
+    return p
+
+
+def ElastikaSliderLabel(font:Font, n:int, label:str) -> TextPath:
+    if n == -1:
+        xc = ELASTIKA_SLIDER_DX*(2.5) + 2.4
+        y = 90.0 + 19.0/2
+    else:
+        xc = ELASTIKA_SLIDER_DX*(n + 0.5) + 2.4
+        y = ELASTIKA_SLIDER_YMID
+    return CenteredControlTextPath(font, label, xc, y)
+
+
+def ElastikaShape(font:Font, n:int, prefix:str, target: Target) -> Element:
+    group = Element('g', 'artwork_' + prefix)
+    text = ElastikaPathForShape(n, target)
+    style = 'fill:url(#gradient_{});fill-opacity:1;stroke:#000000;stroke-width:0.0;stroke-linecap:square'.format(prefix)
+    path = Path(text, style, 'boundary_' + prefix)
+    group.append(path)
+    if n != -1:     # exclude label for power control
+        group.append(ElastikaSliderLabel(font, n, prefix.upper()))
+    return group
+
+
+def AddSlider(controls:ControlLayer, pl:Element, target:Target, name:str, xc:float, yc:float) -> None:
+    controls.append(Component(name, xc, yc))
+    if previewComponentPositions and (target == Target.Lite):
+        pl.append(Rectangle(xc, yc, 2.4, 28.0, 'black', 0.1, 'none'))
+
+
+def PlaceElastikaControls(controls:ControlLayer, pl:Element, shrink:float, target:Target) -> None:
+    AddSlider(controls, pl, target, 'fric_slider',  8.00,  46.00)
+    AddSlider(controls, pl, target, 'stif_slider', 19.24,  46.00)
+    AddSlider(controls, pl, target, 'span_slider', 30.48,  46.00)
+    AddSlider(controls, pl, target, 'curl_slider', 41.72,  46.00)
+    AddSlider(controls, pl, target, 'mass_slider', 52.96,  46.00)
+
+    if target == Target.VcvRack:
+        AddLargeKnob(controls, pl, target, 'drive_knob', 14.00, 102.00 - shrink)
+        AddLargeKnob(controls, pl, target, 'level_knob', 46.96, 102.00 - shrink)
+    elif target == Target.Lite:
+        dxKnob  =  1.5 * ELASTIKA_SLIDER_DX
+        xCenter =  30.48
+        yCenter = 102.00 - shrink
+        AddLargeKnob(controls, pl, target, 'drive_knob', xCenter - dxKnob, yCenter)
+        AddLargeKnob(controls, pl, target, 'level_knob', xCenter,          yCenter)
+        AddLargeKnob(controls, pl, target, 'mix_knob',   xCenter + dxKnob, yCenter)
+    else:
+        raise TargetError(target)
+
+    AddLargeKnob(controls, pl, target, 'input_tilt_knob',  19.24,  17.50)
+    AddLargeKnob(controls, pl, target, 'output_tilt_knob', 41.72,  17.50)
+
+
+def PlaceElastikaRackControls(controls: ControlLayer) -> None:
     controls.append(Component("fric_atten",          8.00,  72.00))
     controls.append(Component("stif_atten",         19.24,  72.00))
     controls.append(Component("span_atten",         30.48,  72.00))
@@ -1265,17 +1422,501 @@ def PlaceElastikaControls(cdict:Dict[str, ControlLayer]) -> int:
     controls.append(Component("mass_cv",            52.96,  81.74))
     controls.append(Component("input_tilt_cv",       8.00,  22.50))
     controls.append(Component("output_tilt_cv",     53.00,  22.50))
-    controls.append(Component("drive_knob",         14.00, 102.00))
-    controls.append(Component("level_knob",         46.96, 102.00))
-    controls.append(Component("input_tilt_knob",    19.24,  17.50))
-    controls.append(Component("output_tilt_knob",   41.72,  17.50))
     controls.append(Component("audio_left_input",    7.50, 115.00))
     controls.append(Component("audio_right_input",  20.50, 115.00))
     controls.append(Component("power_gate_input",   30.48, 104.00))
     controls.append(Component("audio_left_output",  40.46, 115.00))
     controls.append(Component("audio_right_output", 53.46, 115.00))
     controls.append(Component("power_toggle",       30.48,  95.00))
+
+
+def ElastikaConnectorArt(pl:Element, font:Font, tx1:float, tx2:float, ty:float) -> None:
+    # We need connector lines from the knob to CV input and attenuverter knob.
+    tdx = 11.24
+    tdy = 5.0
+    pl.append(GeneralLine(tx1, ty, tx1-tdx, ty-tdy, 'tilt_input_atten_line'))
+    pl.append(GeneralLine(tx1, ty, tx1-tdx, ty+tdy, 'tilt_input_cv_line'))
+    pl.append(GeneralLine(tx2, ty, tx2+tdx, ty-tdy, 'tilt_output_atten_line'))
+    pl.append(GeneralLine(tx2, ty, tx2+tdx, ty+tdy, 'tilt_output_cv_line'))
+
+    # Connector lines from drive knob to CV/atten.
+    kx1 = 14.0      # horizontal position of IN/drive knob
+    kx2 = 46.96     # horizontal position of OUT/level knob
+    ky = 102.0      # vertical position of both knobs
+    kdx = 6.5
+    kdy = 13.0
+
+    pl.append(GeneralLine(kx1, ky, kx1-kdx, ky+kdy, 'left_input_line'))
+    pl.append(GeneralLine(kx1, ky, kx1+kdx, ky+kdy, 'right_input_line'))
+    pl.append(GeneralLine(kx2, ky, kx2-kdx, ky+kdy, 'left_output_line'))
+    pl.append(GeneralLine(kx2, ky, kx2+kdx, ky+kdy, 'right_output_line'))
+
+
+def GenerateElastikaLayer(svgFileName:str, leftLabel:str, rightLabel:str, qx:float) -> int:
+    PANEL_WIDTH = 12
+    panel = Panel(PANEL_WIDTH)
+    pl = Element('g', 'PanelLayer')
+    panel.append(pl)
+    qdx = 6.6       # horizontal offset of text labels "L", "R"
+    qy = 109.3
+    with Font(SAPPHIRE_FONT_FILENAME) as font:
+        if leftLabel:
+            pl.append(CenteredControlTextPath(font, leftLabel, qx-qdx, qy))
+        if rightLabel:
+            pl.append(CenteredControlTextPath(font, rightLabel, qx+qdx, qy))
+    return Save(panel, svgFileName)
+
+
+def GenerateElastikaLayers() -> int:
+    kx1 = 14.0      # horizontal position of IN/drive knob
+    kx2 = 46.96     # horizontal position of OUT/level knob
+    qx1 = kx1 - 0.1
+    qx2 = kx2 - 0.1
+    return (
+        GenerateElastikaLayer('../res/elastika_in_lr.svg',  'L', 'R', qx1) or
+        GenerateElastikaLayer('../res/elastika_in_l2.svg',  '2',  '', qx1) or
+        GenerateElastikaLayer('../res/elastika_in_r2.svg',   '', '2', qx1) or
+        GenerateElastikaLayer('../res/elastika_out_lr.svg', 'L', 'R', qx2) or
+        GenerateElastikaLayer('../res/elastika_out_2.svg',  '2',  '', qx2)
+    )
+
+
+def GenerateElastikaPanel(cdict:Dict[str, ControlLayer], target:Target) -> int:
+    PANEL_WIDTH = 12
+    svgFileName = SvgFileName('elastika', target)
+
+    if target == Target.VcvRack:
+        height = PANEL_HEIGHT_MM
+        shrink = 0.0
+        cdsymbol = 'elastika'
+    elif target == Target.Lite:
+        height = 100.0
+        shrink = 17.5
+        cdsymbol = 'elastika_export'
+    else:
+        raise TargetError(target)
+
+    panel = Panel(PANEL_WIDTH, height)
+    cdict[cdsymbol] = controls = ControlLayer(panel)
+    pl = Element('g', 'PanelLayer')
+    defs = Element('defs')
+    pl.append(defs)
+    panel.append(pl)
+    xmid = panel.mmWidth / 2.0
+    previewElement = Element('g', 'PreviewControls')
+    PlaceElastikaControls(controls, previewElement, shrink, target)
+    if target == Target.VcvRack:
+        PlaceElastikaRackControls(controls)
+    (gy1, gy2) = (32.0, 89.5)
+    defs.append(Gradient(gy1, gy2, '#5754c4', SAPPHIRE_PANEL_COLOR, 'gradient_fric'))
+    defs.append(Gradient(gy2, gy1, '#0060f9', SAPPHIRE_PANEL_COLOR, 'gradient_stif'))
+    defs.append(Gradient(gy1, gy2, '#976de4', SAPPHIRE_PANEL_COLOR, 'gradient_span'))
+    defs.append(Gradient(gy2, gy1, '#0081d7', SAPPHIRE_PANEL_COLOR, 'gradient_curl'))
+    defs.append(Gradient(gy1, gy2, '#29aab4', SAPPHIRE_PANEL_COLOR, 'gradient_mass'))
+    defs.append(Gradient(112.5, 90.0, '#b9818b', SAPPHIRE_PANEL_COLOR, 'gradient_power'))
+    with Font(SAPPHIRE_FONT_FILENAME) as font:
+        pl.append(BorderRect(PANEL_WIDTH, SAPPHIRE_PANEL_COLOR, SAPPHIRE_BORDER_COLOR, height))
+        pl.append(ModelNamePath(panel, font, 'elastika'))
+        pl.append(SapphireInsignia(panel, font))
+        pl.append(ElastikaShape(font,  0, 'fric', target))
+        pl.append(ElastikaShape(font,  1, 'stif', target))
+        pl.append(ElastikaShape(font,  2, 'span', target))
+        pl.append(ElastikaShape(font,  3, 'curl', target))
+        pl.append(ElastikaShape(font,  4, 'mass', target))
+        if target == Target.VcvRack:
+            pl.append(ElastikaShape(font, -1, 'power', target))
+        pl.append(CenteredControlTextPath(font, 'TILT', xmid, 20.0))
+
+        tx1 = ELASTIKA_SLIDER_DX*(1.5) + 2.4
+        tx2 = ELASTIKA_SLIDER_DX*(3.5) + 2.4
+        ty = 17.5
+        pl.append(HorizontalLine(tx1, tx2, ty, 'tilt_hor_line'))
+        if target == Target.VcvRack:
+            ElastikaConnectorArt(pl, font, tx1, tx2, ty)
+
+        # IN/OUT labels for TILT knobs...
+        pl.append(CenteredControlTextPath(font, 'IN',   tx1, 26.0))
+        pl.append(CenteredControlTextPath(font, 'OUT',  tx2, 26.0))
+
+        # IN/OUT labels for drive/level knobs...
+        if target == Target.VcvRack:
+            ty = 93.5
+            pl.append(CenteredControlTextPath(font, 'IN',   ELASTIKA_SLIDER_DX*(1.0) + 2.6, ty))
+            pl.append(CenteredControlTextPath(font, 'OUT',  ELASTIKA_SLIDER_DX*(4.0) + 2.4, ty))
+        elif target == Target.Lite:
+            ty = 76.0
+            pl.append(CenteredControlTextPath(font, 'IN',   ELASTIKA_SLIDER_DX*(1.0) + 2.4, ty))
+            pl.append(CenteredControlTextPath(font, 'OUT',  ELASTIKA_SLIDER_DX*(2.5) + 2.4, ty))
+            pl.append(CenteredControlTextPath(font, 'MIX',  ELASTIKA_SLIDER_DX*(4.0) + 2.4, ty))
+            if previewComponentPositions:
+                pl.append(previewElement)       # add last, so we can see them!
+        else:
+            raise TargetError(target)
+
+    return Save(panel, svgFileName)
+
+
+def TubeUnitPos(xGrid:int, yGrid:int, target:Target) -> Tuple[float, float]:
+    if target == Target.VcvRack:
+        x = 20.5 + xGrid*20.0
+        y = 34.0 + yGrid*21.0 - xGrid*10.5
+    elif target == Target.Lite:
+        xshift = 4.0
+        x = (20.5 - xshift) + xGrid*(20.0 + 2*xshift)
+        y = 34.0 + yGrid*21.0 - xGrid*10.5
+    else:
+        raise TargetError(target)
+    return (x, y)
+
+
+def AddKnob(controls:ControlLayer, pl:Element, target:Target, name:str, xc:float, yc:float, radius:float) -> None:
+    controls.append(Component(name, xc, yc))
+    if previewComponentPositions and (target == Target.Lite):
+        pl.append(Circle(xc, yc, radius, 'black', 0.1, 'none'))
+
+
+def AddLargeKnob(controls:ControlLayer, pl:Element, target:Target, name:str, xc:float, yc:float) -> None:
+    AddKnob(controls, pl, target, name, xc, yc, 5.5)
+
+
+def AddSwitch(controls:ControlLayer, pl:Element, target:Target, name:str, xc:float, yc:float, width:float, height:float) -> None:
+    controls.append(Component(name, xc, yc))
+    if previewComponentPositions and (target == Target.Lite):
+        pl.append(Rectangle(xc, yc, width, height, 'black', 0.1, 'none'))
+
+
+def AddTubeUnitControl(controls:ControlLayer, target:Target, pl:Element, name:str, column:int, row:int, xofs:float = 0.0, yofs:float = 0.0) -> None:
+    (xCenter, yCenter) = TubeUnitPos(column, row, target)
+    AddLargeKnob(controls, pl, target, name, xCenter + xofs, yCenter + yofs)
+
+
+def AddTubeUnitGroup(controls:ControlLayer, target:Target, pl:Element, prefix:str, column:int, row:int) -> None:
+    xdir = 1 - 2*column     # map column=[0,1] to direction [+1, -1]
+    AddTubeUnitControl(controls, target, pl, prefix + '_knob',  column, row)
+    if target == Target.VcvRack:
+        AddTubeUnitControl(controls, target, pl, prefix + '_atten', column, row, -10.0*xdir, -4.0)
+        AddTubeUnitControl(controls, target, pl, prefix + '_cv',    column, row, -10.0*xdir, +4.0)
+
+
+def PlaceTubeUnitControls(cdict:Dict[str, ControlLayer], pl: Element, target:Target) -> int:
+    if target == Target.VcvRack:
+        cdsymbol = 'tubeunit'
+    elif target == Target.Lite:
+        cdsymbol = 'tubeunit_export'
+    else:
+        raise TargetError(target)
+    controls = cdict[cdsymbol] = ControlLayer(Panel(12))
+    outJackDx = 12.0
+    outJackDy = 5.0
+    if target == Target.VcvRack:
+        AddTubeUnitControl(controls, target, pl, 'level_knob', 1, 4)
+        AddTubeUnitControl(controls, target, pl, 'audio_output_left',  1, 4, +outJackDx, -outJackDy)
+        AddTubeUnitControl(controls, target, pl, 'audio_output_right', 1, 4, +outJackDx, +outJackDy)
+        controls.append(Component('audio_input_left',   9.0, 114.5))
+        controls.append(Component('audio_input_right', 23.0, 114.5))
+    elif target == Target.Lite:
+        AddTubeUnitControl(controls, target, pl, 'mix_knob', 1, 4)
+    else:
+        raise TargetError(target)
+
+    AddTubeUnitGroup(controls, target, pl, 'airflow', 0, 0)
+    AddTubeUnitGroup(controls, target, pl, 'vortex',  1, 0)
+    AddTubeUnitGroup(controls, target, pl, 'width',   0, 1)
+    AddTubeUnitGroup(controls, target, pl, 'center',  1, 1)
+    AddTubeUnitGroup(controls, target, pl, 'decay',   0, 2)
+    AddTubeUnitGroup(controls, target, pl, 'angle',   1, 2)
+    AddTubeUnitGroup(controls, target, pl, 'root',    0, 3)
+    AddTubeUnitGroup(controls, target, pl, 'spring',  1, 3)
     return 0
+
+TUBE_UNIT_PANEL_WIDTH = 12
+
+
+def TubeUnitPentagonOrigin(x:float, y:float) -> Tuple[float,float]:
+    return (18.5 + x*24.0, 33.0 + y*21.0 - x*10.5)
+
+
+def TubeUnitPortArtwork() -> Element:
+    group = Element('g', 'port_artwork')
+
+    inputConnectorPath = Element('path', 'input_connector_path')
+    inputConnectorPath.setAttrib('style', CONNECTOR_LINE_STYLE)
+    inputConnectorPath.setAttrib('d', 'M 9,114.5 L 23,114.5 z')
+    group.append(inputConnectorPath)
+
+    driveConnectorPath = Element('path', 'drive_connector_path')
+    driveConnectorPath.setAttrib('style', CONNECTOR_LINE_STYLE)
+    (x1, y1) = (40.5, 107.5)
+    (dx, dy) = (12.0, 5.0)
+    dctext  = Move(x1, y1)
+    dctext += Line(x1+dx, y1-dy)
+    dctext += Move(x1, y1)
+    dctext += Line(x1+dx, y1+dy)
+    driveConnectorPath.setAttrib('d', dctext)
+    group.append(driveConnectorPath)
+
+    with Font(SAPPHIRE_FONT_FILENAME) as font:
+        group.append(ControlTextPath(font, 'IN',  14.3, 109.4))
+        group.append(ControlTextPath(font, 'L',    8.1, 106.5))
+        group.append(ControlTextPath(font, 'R',   21.8, 106.5))
+        group.append(ControlTextPath(font, 'L',   57.0, 100.0))
+        group.append(ControlTextPath(font, 'R',   57.0, 110.0))
+
+    return group
+
+
+def TubeUnitMainPanel(title:str) -> Tuple[Panel, Element]:
+    panel = Panel(TUBE_UNIT_PANEL_WIDTH)
+
+    defs = Element('defs')
+    defs.append(LinearGradient('gradient_0', 50.0,  0.0,  0.0, 0.0, '#906be8', SAPPHIRE_PURPLE_COLOR))
+    defs.append(LinearGradient('gradient_1', 60.0,  0.0,  0.0, 0.0, '#6d96d6', '#3372d4'))
+    defs.append(LinearGradient('gradient_2',  0.0,  0.0, 60.0, 0.0, '#986de4', '#4373e6'))
+    defs.append(LinearGradient('gradient_3', 60.0,  0.0,  0.0, 0.0, '#3d81a0', '#26abbf'))
+    panel.append(defs)
+
+    pl = Element('g', 'PanelLayer')
+    pl.append(BorderRect(TUBE_UNIT_PANEL_WIDTH, SAPPHIRE_PANEL_COLOR, SAPPHIRE_BORDER_COLOR))
+
+    # Pentagons that surround all 8 control groups.
+    PentDx1 = 14.0
+    PentDx3 = 16.0
+    PentDx2 =  8.0
+    PentDy  = 10.5
+    for y in range(4):
+        style = 'fill:url(#gradient_{});fill-opacity:1;stroke:#000000;stroke-width:0.1;stroke-linecap:round;stroke-linejoin:bevel;stroke-dasharray:none'.format(y)
+        t = ''
+        for x in range(2):
+            sx, sy = TubeUnitPentagonOrigin(x, y)
+            xdir = 1.0 - 2.0*x
+            t += Move(sx - xdir*PentDx1, sy - PentDy)
+            t += Line(sx + xdir*PentDx2, sy - PentDy)
+            t += Line(sx + xdir*PentDx3, sy)
+            t += Line(sx + xdir*PentDx2, sy + PentDy)
+            t += Line(sx - xdir*PentDx1, sy + PentDy )
+            t += ClosePath()
+        pl.append(Element('path').setAttrib('style', style).setAttrib('d', t))
+
+    with Font(SAPPHIRE_FONT_FILENAME) as font:
+        pl.append(SapphireInsignia(panel, font))
+        pl.append(ModelNamePath(panel, font, title))
+
+    panel.append(pl)
+    return (panel, pl)
+
+
+def GenerateTubeUnitMainPanel(cdict:Dict[str, ControlLayer], title:str, symbol:str) -> int:
+    panel, pl = TubeUnitMainPanel(title)
+    pl.append(TubeUnitPortArtwork())
+    return (
+        PlaceTubeUnitControls(cdict, pl, Target.VcvRack) or
+        Save(panel, '../res/{}.svg'.format(symbol))
+    )
+
+
+def GenerateTubeUnitAudioPathLayer() -> int:
+    PentDx1 = 14.0
+    PentDx3 = 16.0
+    PentDx2 =  8.0
+    PentDy  = 10.5
+
+    # Render a serpentine default-hidden emphasis border around the control groups
+    # that affect audio inputs. We will show these only when audio inputs are connected.
+
+    t = ''
+    sx, sy = TubeUnitPentagonOrigin(0, 3)
+    t += Move(sx - PentDx1, sy + PentDy)
+    sx, sy = TubeUnitPentagonOrigin(0, 2)
+    t += Line(sx - PentDx1, sy - PentDy)
+    t += Line(sx + PentDx2, sy - PentDy)
+    sx, sy = TubeUnitPentagonOrigin(1, 2)
+    t += Line(sx - PentDx2, sy - PentDy)
+    t += Line(sx + PentDx1, sy - PentDy)
+    sx, sy = TubeUnitPentagonOrigin(1, 3)
+    t += Line(sx + PentDx1, sy - PentDy)
+    t += Line(sx - PentDx2, sy - PentDy)
+    sx, sy = TubeUnitPentagonOrigin(0, 3)
+    t += Line(sx + PentDx2, sy - PentDy)
+    t += Line(sx + PentDx3, sy)
+    t += Line(sx + PentDx2, sy + PentDy)
+    t += 'z'
+
+    path = Element('path')
+    path.setAttrib('style', 'fill:#ffffff;fill-opacity:0.2;stroke:#e0e000;stroke-width:0.3;stroke-linecap:round;stroke-linejoin:bevel;stroke-dasharray:none')
+    path.setAttrib('d', t)
+    panel = Panel(TUBE_UNIT_PANEL_WIDTH)
+    panel.append(path)
+    return Save(panel, '../res/tubeunit_audio_path.svg')
+
+
+def TubeUnitLabelRJ(text:str, font:Font, i:int, j:int) -> TextPath:
+    """Create a right-justified text label."""
+    ti = TextItem(text, font, CONTROL_LABEL_POINTS)
+    (w, h) = ti.measure()
+    (x, y) = TubeUnitPentagonOrigin(i, j)
+    (dx, dy) = (7.0, -12.8)
+    return TextPath(ti, x-w+dx, y+(h/2)+dy, text.lower() + '_label')
+
+
+def TubeUnitLabelLJ(text:str, font:Font, i:int, j:int) -> TextPath:
+    """Create a left-justified text label."""
+    ti = TextItem(text, font, CONTROL_LABEL_POINTS)
+    (_, h) = ti.measure()
+    (x, y) = TubeUnitPentagonOrigin(i, j)
+    (dx, dy) = (-7.0, -12.8)
+    return TextPath(ti, x+dx, y+(h/2)+dy, text.lower() + '_label')
+
+def TubeUnitLabelCentered(text:str, font:Font, i:int, j:int, dx:float = 0.0, dy:float = -13.2) -> TextPath:
+    """Create a label centered over the knob it describes."""
+    ti = TextItem(text, font, CONTROL_LABEL_POINTS)
+    (w, h) = ti.measure()
+    (x, y) = TubeUnitPos(i, j, Target.Lite)
+    return TextPath(ti, x-(w/2)+dx, y+(h/2)+dy, text.lower() + '_label')
+
+
+def TubeUnitLabelGroupVcv() -> Element:
+    group = Element('g', 'control_labels')
+    group.setAttrib('style', CONTROL_LABEL_STYLE)
+    with Font(SAPPHIRE_FONT_FILENAME) as font:
+        group.append(TubeUnitLabelRJ('AIRFLOW', font, 0, 0))
+        group.append(TubeUnitLabelRJ('WIDTH',   font, 0, 1))
+        group.append(TubeUnitLabelRJ('DECAY',   font, 0, 2))
+        group.append(TubeUnitLabelRJ('ROOT',    font, 0, 3))
+        group.append(TubeUnitLabelLJ('VORTEX',  font, 1, 0))
+        group.append(TubeUnitLabelLJ('CENTER',  font, 1, 1))
+        group.append(TubeUnitLabelLJ('ANGLE',   font, 1, 2))
+        group.append(TubeUnitLabelLJ('SPRING',  font, 1, 3))
+        group.append(ControlTextPath(font, 'OUT', 36.7,  96.2, 'out_label'))
+    return group
+
+
+def TubeUnitLabelGroupLite() -> Element:
+    group = Element('g', 'control_labels')
+    group.setAttrib('style', CONTROL_LABEL_STYLE)
+    with Font(SAPPHIRE_FONT_FILENAME) as font:
+        group.append(TubeUnitLabelCentered('AIRFLOW', font, 0, 0))
+        group.append(TubeUnitLabelCentered('WIDTH',   font, 0, 1))
+        group.append(TubeUnitLabelCentered('DECAY',   font, 0, 2))
+        group.append(TubeUnitLabelCentered('ROOT',    font, 0, 3))
+        group.append(TubeUnitLabelCentered('VORTEX',  font, 1, 0))
+        group.append(TubeUnitLabelCentered('CENTER',  font, 1, 1))
+        group.append(TubeUnitLabelCentered('ANGLE',   font, 1, 2))
+        group.append(TubeUnitLabelCentered('SPRING',  font, 1, 3))
+        group.append(TubeUnitLabelCentered('MIX',     font, 1, 4))
+    return group
+
+
+def GenerateTubeUnitLabelLayer() -> int:
+    panel = Panel(TUBE_UNIT_PANEL_WIDTH)
+    panel.append(TubeUnitLabelGroupVcv())
+    return Save(panel, '../res/tubeunit_labels.svg')
+
+
+def GenerateTubeUnitVentLayer(name:str) -> int:
+    with Font(SAPPHIRE_FONT_FILENAME) as font:
+        ti = TextItem(name, font, CONTROL_LABEL_POINTS)
+    tp = ti.toPath(20.1, 16.0, HorizontalAlignment.Center, VerticalAlignment.Middle, CONTROL_LABEL_STYLE)
+    panel = Panel(TUBE_UNIT_PANEL_WIDTH)
+    panel.append(tp)
+    return Save(panel, '../res/tubeunit_{}.svg'.format(name.lower()))
+
+
+def GenerateTubeUnitExportPanel(cdict:Dict[str, ControlLayer], title:str, symbol:str) -> int:
+    # Combine the control layer with the label layer for external applications to render the panel.
+    panel, pl = TubeUnitMainPanel(title)
+    pl.append(TubeUnitLabelGroupLite())
+    return (
+        PlaceTubeUnitControls(cdict, pl, Target.Lite) or
+        Save(panel, '../export/{}.svg'.format(symbol))
+    )
+
+
+def GenerateTubeUnit(cdict:Dict[str, ControlLayer], title:str, symbol:str) -> int:
+    if (
+        GenerateTubeUnitMainPanel(cdict, title, symbol) or
+        GenerateTubeUnitExportPanel(cdict, title, symbol)
+    ): return 1
+
+    if title == 'tube unit':
+        if (
+            GenerateTubeUnitAudioPathLayer() or
+            GenerateTubeUnitLabelLayer() or
+            GenerateTubeUnitVentLayer('VENT') or
+            GenerateTubeUnitVentLayer('SEAL')
+        ): return 1
+
+    return 0
+
+
+def GenerateEnvPitchPanel(cdict:Dict[str, ControlLayer], target:Target) -> int:
+    name = 'env'
+    PANEL_WIDTH = 6
+    svgFileName = SvgFileName(name, target)
+    panel = Panel(PANEL_WIDTH)
+    cdict[cdict_name(name, target)] = controls = ControlLayer(panel)
+    pl = Element('g', 'PanelLayer')
+    defs = Element('defs')
+    pl.append(defs)
+    panel.append(pl)
+    xmid = panel.mmWidth / 2.0
+    yFence = FencePost(20.0, 114.0, 8)
+    yThresh      = yFence.value(0)
+    ySpeed       = yFence.value(1)
+    yFreq        = yFence.value(2)
+    yRes         = yFence.value(3)
+    yGain        = yFence.value(4)
+    yPolyAudioIn = yFence.value(5)
+    yEnvelopeOut = yFence.value(6)
+    yPitchOut    = yFence.value(7)
+    dyText = 5.8
+    artSpaceAboveKnob = 8.6
+    artSpaceBelowKnob = 8.0
+    dxEnvGate = 6.5
+
+    with Font(SAPPHIRE_FONT_FILENAME) as font:
+        pl.append(BorderRect(PANEL_WIDTH, SAPPHIRE_PANEL_COLOR, SAPPHIRE_BORDER_COLOR))
+
+        defs.append(Gradient(yThresh-artSpaceAboveKnob, yRes+artSpaceBelowKnob, SAPPHIRE_AZURE_COLOR, SAPPHIRE_PANEL_COLOR, 'gradient_blue'))
+        defs.append(Gradient(yPolyAudioIn-artSpaceAboveKnob, yPolyAudioIn+artSpaceBelowKnob, SAPPHIRE_MAGENTA_COLOR, SAPPHIRE_PANEL_COLOR, 'gradient_purple'))
+        defs.append(Gradient(yEnvelopeOut-artSpaceAboveKnob, yPitchOut+artSpaceBelowKnob, SAPPHIRE_TEAL_COLOR, SAPPHIRE_PANEL_COLOR, 'gradient_out'))
+
+        pl.append(ControlGroupArt(name, 'control_art', panel, yThresh-artSpaceAboveKnob, yRes+artSpaceBelowKnob, 'gradient_blue'))
+        pl.append(ControlGroupArt(name, 'audio_art', panel, yPolyAudioIn-artSpaceAboveKnob, yPolyAudioIn+artSpaceBelowKnob, 'gradient_purple'))
+        pl.append(ControlGroupArt(name, 'out_art', panel, yEnvelopeOut-artSpaceAboveKnob, yPitchOut+artSpaceBelowKnob, 'gradient_out'))
+
+        pl.append(CenteredGemstone(panel))
+        pl.append(ModelNamePath(panel, font, name))
+
+        controls.append(Component('audio_input', xmid, yPolyAudioIn))
+        pl.append(CenteredControlTextPath(font, 'AUDIO', xmid, yPolyAudioIn - dyText))
+
+        controls.append(Component('envelope_output', xmid - dxEnvGate, yEnvelopeOut))
+        pl.append(CenteredControlTextPath(font, 'ENV', xmid - dxEnvGate, yEnvelopeOut - dyText))
+
+        controls.append(Component('gate_output', xmid + dxEnvGate, yEnvelopeOut))
+        pl.append(CenteredControlTextPath(font, 'GATE', xmid + dxEnvGate, yEnvelopeOut - dyText))
+
+        pl.append(HorizontalLine(xmid - dxEnvGate, xmid + dxEnvGate, yEnvelopeOut, 'env_gate_connector'))
+
+        controls.append(Component('pitch_output', xmid, yPitchOut))
+        pl.append(CenteredControlTextPath(font, 'V/OCT', xmid, yPitchOut - dyText))
+
+        AddFlatControlGroup(pl, controls, xmid, yThresh, 'thresh')
+        pl.append(CenteredControlTextPath(font, 'THRESH', xmid, yThresh - dyText))
+
+        AddFlatControlGroup(pl, controls, xmid, ySpeed, 'speed')
+        pl.append(CenteredControlTextPath(font, 'SPEED', xmid, ySpeed - dyText))
+
+        AddFlatControlGroup(pl, controls, xmid, yFreq, 'frequency')
+        pl.append(CenteredControlTextPath(font, 'FREQ', xmid, yFreq - dyText))
+
+        AddFlatControlGroup(pl, controls, xmid, yRes, 'resonance')
+        pl.append(CenteredControlTextPath(font, 'RES', xmid, yRes - dyText))
+
+        AddFlatControlGroup(pl, controls, xmid, yGain, 'gain')
+        pl.append(CenteredControlTextPath(font, 'GAIN', xmid, yGain - dyText))
+    return Save(panel, svgFileName)
+
 
 if __name__ == '__main__':
     cdict:Dict[str, ControlLayer] = {}
@@ -1298,14 +1939,21 @@ if __name__ == '__main__':
         GenerateStereoInputLabels('../res/stereo_in_lr.svg', 'L', 'R') or
         GenerateStereoInputLabels('../res/stereo_in_l2.svg', '2', '') or
         GenerateStereoInputLabels('../res/stereo_in_r2.svg', '', '2') or
-        GenerateGalaxyPanel(cdict, 'galaxy') or
-        GenerateGravyPanel(cdict, 'gravy') or
+        GenerateGalaxyPanel(cdict, 'galaxy', Target.VcvRack) or
+        GenerateGalaxyPanel(cdict, 'galaxy', Target.Lite) or
+        GenerateGravyPanel(cdict, 'gravy', Target.VcvRack) or
+        GenerateGravyPanel(cdict, 'gravy', Target.Lite) or
         GenerateSaucePanel(cdict, 'sauce') or
         GenerateRotiniPanel(cdict) or
         GeneratePivotPanel(cdict) or
         GenerateSamPanel(cdict) or
         GeneratePopPanel(cdict) or
-        PlaceElastikaControls(cdict) or
+        GenerateElastikaLayers() or
+        GenerateElastikaPanel(cdict, Target.VcvRack) or
+        GenerateElastikaPanel(cdict, Target.Lite) or
+        GenerateEnvPitchPanel(cdict, Target.VcvRack) or
+        GenerateTubeUnit(cdict, 'tube unit', 'tubeunit') or
+        GenerateTubeUnit(cdict, 'tube monster', 'tubemonster') or
         SaveControls(cdict) or
         Print('SUCCESS')
     )

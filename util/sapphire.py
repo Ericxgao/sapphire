@@ -28,6 +28,7 @@ GEMSTONE_STYLE = 'stroke-width:0;fill:#0000ff;stroke:#2e2114;stroke-linecap:squa
 CONNECTOR_LINE_STYLE = 'stroke:#000000;stroke-width:0.25;stroke-linecap:round;stroke-linejoin:bevel;stroke-dasharray:none'
 ARROW_LINE_STYLE = 'stroke:#000000;stroke-width:0.35;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none'
 SIGNAL_LINE_STYLE = 'stroke:#66065c;stroke-width:0.5;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none'
+SYMBOL_TEXT_STYLE = 'stroke:#000000;stroke-width:0.5;stroke-linecap:butt;stroke-linejoin:miter;stroke-dasharray:none'
 
 
 class SapphireGemstone(Element):
@@ -57,9 +58,10 @@ def ModelNamePath(panel:Panel, font:Font, name:str) -> TextPath:
 
 def SapphireInsignia(panel:Panel, font:Font) -> Element:
     '''Creates a bottom-centered Sapphire insignia with gemstones on either side.'''
+    shrink = PANEL_HEIGHT_MM - panel.mmHeight
     insignia = Element('g', 'sapphire_insignia')
     gemSpacing = 2.284
-    gemY = 121.0
+    gemY = 121.0 - shrink
     ti = TextItem('sapphire', font, BRAND_NAME_POINTS)
     (dx, dy) = ti.measure()
     x1 = (panel.mmWidth - dx)/2
@@ -136,7 +138,7 @@ class FencePost:
         self.nItems = nItems
         self.delta = (highValue - lowValue) / (nItems - 1)
 
-    def value(self, itemIndex: int) -> float:
+    def value(self, itemIndex: float) -> float:
         return self.lowValue + (itemIndex * self.delta)
 
 
@@ -160,4 +162,43 @@ def AddFlatControlGrid(
             yIndex += 1
         xIndex += 1
 
+
+def GeneralLine(x1:float, y1:float, x2:float, y2:float, id:str) -> Path:
+    path = ''
+    path += Move(x1, y1)
+    path += Line(x2, y2)
+    return Path(path, CONNECTOR_LINE_STYLE, id, 'none')
+
+
+def HorizontalLine(x1:float, x2:float, y:float, id:str) -> Path:
+    path = ''
+    path += Move(x1, y)
+    path += Line(x2, y)
+    return Path(path, CONNECTOR_LINE_STYLE, id, 'none')
+
+
+def VerticalLine(x:float, y1:float, y2:float, id:str) -> Path:
+    path = ''
+    path += Move(x, y1)
+    path += Line(x, y2)
+    return Path(path, CONNECTOR_LINE_STYLE, id, 'none')
+
+
+def AddToggleGroup(
+        pl: Element,
+        controls: ControlLayer,
+        font: Font,
+        caption: str,
+        prefix: str,
+        x1: float,
+        x2: float,
+        yControl: float,
+        dyText: float,
+        id: str = '') -> Element:
+    group = Element('g', id)
+    pl.append(CenteredControlTextPath(font, caption, (x1+x2)/2, yControl-dyText))
+    pl.append(HorizontalLine(x1, x2, yControl, prefix + '_line_art'))
+    controls.append(Component(prefix + '_input',  x1, yControl))
+    controls.append(Component(prefix + '_button', x2, yControl))
+    return group
 

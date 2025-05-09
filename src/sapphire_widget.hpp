@@ -19,13 +19,24 @@ namespace Sapphire
                 menu->addChild(createBoolPtrMenuItem<bool>("Low sensitivity", "", lowSensitivityMode));
         }
 
+        bool isLowSensitive() const
+        {
+            return (lowSensitivityMode != nullptr) && *lowSensitivityMode;
+        }
+
+        void setLowSensitive(bool s)
+        {
+            if (lowSensitivityMode != nullptr)
+                *lowSensitivityMode = s;
+        }
+
         void drawLayer(const DrawArgs& args, int layer) override
         {
             Trimpot::drawLayer(args, layer);
 
             if (layer == 1)
             {
-                if ((lowSensitivityMode != nullptr) && *lowSensitivityMode)
+                if (isLowSensitive())
                 {
                     // Draw a small dot on top of the knob to indicate that it is in low-sensitivity mode.
                     nvgBeginPath(args.vg);
@@ -246,9 +257,10 @@ namespace Sapphire
             addOutput(output);
         }
 
-        SapphirePort* addSapphireOutput(int outputId, const std::string& label)
+        template <typename port_t = SapphirePort>
+        port_t* addSapphireOutput(int outputId, const std::string& label)
         {
-            SapphirePort *port = createOutputCentered<SapphirePort>(Vec{}, module, outputId);
+            port_t *port = createOutputCentered<port_t>(Vec{}, module, outputId);
             addSapphireOutput(port, label);
             return port;
         }
@@ -307,9 +319,10 @@ namespace Sapphire
             return sapphireModule;
         }
 
-        void addSapphireAttenuverter(int attenId, const std::string& label)
+        template <typename knob_t = SapphireAttenuverterKnob>
+        knob_t *addSapphireAttenuverter(int attenId, const std::string& label)
         {
-            SapphireAttenuverterKnob *knob = createParamCentered<SapphireAttenuverterKnob>(Vec{}, module, attenId);
+            knob_t *knob = createParamCentered<knob_t>(Vec{}, module, attenId);
             SapphireModule* sapphireModule = getSapphireModule();
 
             if (sapphireModule != nullptr)
@@ -323,6 +336,7 @@ namespace Sapphire
 
             // We need to put the knob on the screen whether this is a preview widget or a live module.
             addSapphireParam(knob, label);
+            return knob;
         }
 
         void addSapphireControlGroup(const std::string& name, int knobId, int attenId, int cvInputId)
@@ -338,6 +352,26 @@ namespace Sapphire
             addSapphireAttenuverter(attenId, prefix + "_atten");
             addSapphireInput(cvInputId, prefix + "_cv");
             return knob;
+        }
+
+        void addToggleGroup(
+            const std::string& prefix,
+            int inputId,
+            int buttonId,
+            int lightId,
+            char buttonLetter,
+            float dxText,
+            NVGcolor baseColor)
+        {
+            SapphireCaptionButton* button = createLightParamCentered<SapphireCaptionButton>(Vec{}, module, buttonId, lightId);
+            button->momentary = false;
+            button->latch = true;
+            button->dxText = dxText;
+            button->setCaption(buttonLetter);
+            button->initBaseColor(baseColor);
+
+            addSapphireParam(button, prefix + "_button");
+            addSapphireInput(inputId, prefix + "_input");
         }
 
         SvgOverlay* loadLabel(const char *svgFileName)

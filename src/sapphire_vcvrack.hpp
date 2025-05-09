@@ -911,19 +911,20 @@ namespace Sapphire
             );
         }
 
-        int numOutputChannels(int numInputs)
+        int numOutputChannels(int numInputs, int minChannels)
         {
-            int nc = 0;
+            int nc = minChannels;
             for (int i = 0; i < numInputs; ++i)
                 nc = std::max(nc, inputs[i].getChannels());
-            return std::min(PORT_MAX_CHANNELS, nc);
+            return std::clamp(nc, 0, PORT_MAX_CHANNELS);
         }
 
-        void nextChannelInputVoltage(float& voltage, int inputId, int channel)
+        float nextChannelInputVoltage(float& voltage, int inputId, int channel)
         {
             rack::engine::Input& input = inputs[inputId];
             if (channel < input.getChannels())
                 voltage = input.getVoltage(channel);
+            return voltage;
         }
 
         void configControlGroup(
@@ -933,9 +934,12 @@ namespace Sapphire
             int cvInputId,
             float minValue = -1,
             float maxValue = +1,
-            float defValue =  0)
+            float defValue =  0,
+            std::string unit = "",
+            float displayBase = 0,
+            float displayMultiplier = 1)
         {
-            configParam(paramId, minValue, maxValue, defValue, name);
+            configParam(paramId, minValue, maxValue, defValue, name, unit, displayBase, displayMultiplier);
             configParam(attenId, -1, +1, 0, name + " attenuverter", "%", 0, 100);
             configInput(cvInputId, name + " CV");
         }
@@ -1055,6 +1059,18 @@ namespace Sapphire
             agcLevelQuantity->disableMin = disableMin;
 
             return agcLevelQuantity;
+        }
+
+        bool updateToggleGroup(GateTriggerReceiver& receiver, int inputId, int buttonParamId)
+        {
+            Input& input  = inputs.at(inputId);
+            Param& button = params.at(buttonParamId);
+
+            bool portActive = receiver.updateGate(input.getVoltageSum());
+            bool buttonActive = (button.getValue() > 0);
+
+            // Allow the button to toggle the gate state, so the gate can be active-low or active-high.
+            return portActive ^ buttonActive;
         }
     };
 

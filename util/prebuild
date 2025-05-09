@@ -1,6 +1,5 @@
 #!/bin/bash
 
-# Generate the SVG files used by Sapphire modules for panel layouts.
 ./make_panels || exit 1
 
 # Find a random local-minimum-energy state for the Nucleus module's particle gas simulation.

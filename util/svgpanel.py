@@ -308,6 +308,18 @@ class Polygon(Element):
         self.setAttrib('style', style)
 
 
+class Circle(Element):
+    """SVG Circle"""
+    def __init__(self, cx:float, cy:float, radius:float, stroke:str, strokeWidth:float, fill:str, id:str = '') -> None:
+        super().__init__('circle', id)
+        self.setAttribFloat('cx', cx)
+        self.setAttribFloat('cy', cy)
+        self.setAttribFloat('r', radius)
+        self.setAttrib('stroke', stroke)
+        self.setAttribFloat('stroke-width', strokeWidth)
+        self.setAttrib('fill', fill)
+
+
 class TextPath(Element):
     """An SVG path that is rendered from text expressed in a given font and size."""
     def __init__(self, textItem:TextItem, x:float, y:float, id:str = '') -> None:
@@ -315,14 +327,27 @@ class TextPath(Element):
         self.setAttrib('d', textItem.render(x, y))
 
 
+class Rectangle(Element):
+    """SVG Rectangle"""
+    def __init__(self, cx:float, cy:float, width:float, height:float, stroke:str, strokeWidth:float, fill:str, id:str = '') -> None:
+        super().__init__('rect', id)
+        self.setAttribFloat('x', cx - width/2)
+        self.setAttribFloat('y', cy - height/2)
+        self.setAttribFloat('width', width)
+        self.setAttribFloat('height', height)
+        self.setAttrib('stroke', stroke)
+        self.setAttribFloat('stroke-width', strokeWidth)
+        self.setAttrib('fill', fill)
+
+
 class BorderRect(Element):
     """A filled rectangle with border for the bottom layer of your panel design."""
-    def __init__(self, hpWidth:int, fillColor:str, borderColor:str) -> None:
+    def __init__(self, hpWidth:int, fillColor:str, borderColor:str, mmHeight:float = PANEL_HEIGHT_MM) -> None:
         super().__init__('rect', 'border_rect')
         if hpWidth <= 0:
             raise Error('Invalid hpWidth={}'.format(hpWidth))
         self.setAttribFloat('width', HP_WIDTH_MM * hpWidth)
-        self.setAttribFloat('height', PANEL_HEIGHT_MM)
+        self.setAttribFloat('height', mmHeight)
         self.setAttrib('x', '0')
         self.setAttrib('y', '0')
         self.setAttrib('style', 'display:inline;fill:{};fill-opacity:1;fill-rule:nonzero;stroke:{};stroke-width:0.7;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;image-rendering:auto'.format(fillColor, borderColor))
@@ -352,8 +377,8 @@ class Component:
 
 
 class ControlLayer:
-    def __init__(self) -> None:
-        self.componentList:List[Component] = []
+    def __init__(self, panel: 'Panel') -> None:
+        self.componentList = [Component('_panel', panel.mmWidth, panel.mmHeight)]
 
     def append(self, comp:Component) -> None:
         self.componentList.append(comp)
@@ -382,12 +407,12 @@ def UpdateFileIfChanged(filename:str, newText:str) -> bool:
 
 class Panel(Element):
     """A rectangular region that can be either your panel's base layer or a transparent layer on top."""
-    def __init__(self, hpWidth:int) -> None:
+    def __init__(self, hpWidth:int, mmHeight:float = PANEL_HEIGHT_MM) -> None:
         super().__init__('svg')
         if hpWidth <= 0:
             raise Error('Invalid hpWidth={}'.format(hpWidth))
         self.mmWidth = HP_WIDTH_MM * hpWidth
-        self.mmHeight = PANEL_HEIGHT_MM
+        self.mmHeight = mmHeight
         self.setAttrib('xmlns', 'http://www.w3.org/2000/svg')
         self.setAttrib('width', '{:0.2f}mm'.format(self.mmWidth))
         self.setAttrib('height', '{:0.2f}mm'.format(self.mmHeight))

@@ -18,16 +18,6 @@ namespace Sapphire
         const int MinCycle = 1;
         const int MAXCYCLE = 4;
 
-        inline double Square(double x)
-        {
-            return x * x;
-        }
-
-        inline double Cube(double x)
-        {
-            return x * x * x;
-        }
-
         const float ParamKnobMin = 0.0;
         const float ParamKnobDef = 0.5;
         const float ParamKnobMax = 1.0;
@@ -389,7 +379,7 @@ namespace Sapphire
             void process(double sampleRateHz, double inputSampleL, double inputSampleR, double& outputSampleL, double& outputSampleR)
             {
                 const double overallscale = sampleRateHz / 44100;
-                const int cycleEnd = std::clamp(static_cast<int>(std::floor(overallscale)), MinCycle, MAXCYCLE);
+                const int cycleEnd = std::clamp<int>(std::floor(overallscale), MinCycle, MAXCYCLE);
 
                 if (cycle > cycleEnd-1)
                     cycle = cycleEnd-1;
@@ -400,7 +390,7 @@ namespace Sapphire
                 const double lowpass = Square(1.00001-(1.0-brightKnob))/std::sqrt(overallscale);
                 const double drift = Cube(detuneKnob)*0.001;
                 const double size = (bignessKnob*1.77)+0.1;
-                const double wet = 1-Cube(1 - mixKnob);
+                const double wet = 1 - Cube(1 - mixKnob);
 
                 // Update tank sizes as the bigness knob is adjusted.
                 for (int i = 0; i < 12; ++i)
