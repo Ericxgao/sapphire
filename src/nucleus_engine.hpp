@@ -146,6 +146,7 @@ namespace Sapphire
             // Calculate the forces at the existing configuration.
             calculateForces(curr);
 
+            #ifndef METAMODULE
             // Do a naive extrapolation to the midpoint of the time interval.
             // We assume the resulting configuration closely approximates the mean
             // conditions over the whole time interval.
@@ -157,6 +158,7 @@ namespace Sapphire
             // Pretend like the midpoint forces apply at the beginning of the time interval.
             for (int i = 0; i < n; ++i)
                 curr[i].force = next[i].force;
+            #endif
 
             // Extrapolate to the full time interval.
             extrapolate(dt);
