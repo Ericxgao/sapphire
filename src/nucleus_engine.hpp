@@ -63,157 +63,51 @@ namespace Sapphire
         std::vector<NucleusDcRejectFilter> filterArray;     // 3 filters per particle: (x, y, z)
         bool filtersNeedReset = false;
 
-        // Fast inverse square root approximation (Quake III / Carmack technique)
-        inline float fastInvSqrt(float number) 
-        {
-            const float threehalfs = 1.5f;
-            float x2 = number * 0.5f;
-            float y = number;
-            
-            // Evil floating point bit level hacking
-            int i = *(int*)&y;
-            i = 0x5f3759df - (i >> 1); // Magic number for approximation
-            y = *(float*)&i;
-            
-            // Newton-Raphson iteration for accuracy
-            y = y * (threehalfs - (x2 * y * y)); // One iteration
-            
-            return y;
-        }
-        
-        // Fast square root approximation
-        inline float fastSqrt(float x) 
-        {
-            return x * fastInvSqrt(x);
-        }
-
         void calculateForces(std::vector<Particle>& array)
         {
-            const float overlapDistance2 = 1.0e-8f;  // Square of overlapDistance for direct comparison
+            // FIXFIXFIX: include aetherSpin, aetherVisc in the force calculations: a kind of "frame dragging".
+
+            const float overlapDistance = 1.0e-4f;
             const int n = static_cast<int>(numParticles());
 
-            // Reset all forces to zero using direct field access for better performance
-            for (int i = 0; i < n; ++i)
-            {
-                array[i].force[0] = 0.0f;
-                array[i].force[1] = 0.0f;
-                array[i].force[2] = 0.0f;
-            }
+            // Reset all forces to zero, preparing to tally them.
+            for (Particle& p : array)
+                p.force = PhysicsVector::zero();
 
-            // Special case for 0 or 1 particles (no forces to calculate)
-            if (n < 2) return;
-
-            // Fast path if no magnetic coupling (purely electrostatic forces)
-            if (magneticCoupling == 0.0f)
-            {
-                for (int i = 0; i+1 < n; ++i)
-                {
-                    Particle& a = array[i];
-                    const float ax = a.pos[0];
-                    const float ay = a.pos[1];
-                    const float az = a.pos[2];
-                    
-                    for (int j = i+1; j < n; ++j)
-                    {
-                        Particle& b = array[j];
-                        
-                        // Calculate displacement vector components
-                        const float dx = b.pos[0] - ax;
-                        const float dy = b.pos[1] - ay;
-                        const float dz = b.pos[2] - az;
-                        
-                        // Calculate distance squared directly
-                        const float dist2 = dx*dx + dy*dy + dz*dz;
-
-                        // Skip calculation if particles are too close
-                        if (dist2 > overlapDistance2)
-                        {
-                            // Use fast approximation for microcontrollers
-                            const float invDist = fastInvSqrt(dist2);
-                            const float dist = 1.0f / invDist;
-                            const float invDist3 = invDist * invDist * invDist;
-                            
-                            // Force calculation factor: (dist - 1/dist³)
-                            const float electroFactor = dist - invDist3;
-                            
-                            // Calculate and accumulate forces
-                            const float fx = electroFactor * dx;
-                            const float fy = electroFactor * dy;
-                            const float fz = electroFactor * dz;
-                            
-                            // Apply forces directly with scalar operations
-                            a.force[0] += fx;
-                            a.force[1] += fy;
-                            a.force[2] += fz;
-                            
-                            b.force[0] -= fx;
-                            b.force[1] -= fy;
-                            b.force[2] -= fz;
-                        }
-                    }
-                }
-                return;
-            }
-
-            // Regular path with magnetic coupling
+            // Find each pair of distinct particles (a, b).
+            // Add up all the forces acting between the particles.
             for (int i = 0; i+1 < n; ++i)
             {
-                Particle& a = array[i];
-                const float ax = a.pos[0];
-                const float ay = a.pos[1];
-                const float az = a.pos[2];
-                
-                // Precompute and cache effective velocity components
-                PhysicsVector av_temp = EffectiveVelocity(a.vel, speedLimit);
-                const float avx = av_temp[0];
-                const float avy = av_temp[1];
-                const float avz = av_temp[2];
-                
+                Particle& a = array.at(i);
                 for (int j = i+1; j < n; ++j)
                 {
-                    Particle& b = array[j];
-                    
-                    // Calculate displacement vector components
-                    const float dx = b.pos[0] - ax;
-                    const float dy = b.pos[1] - ay;
-                    const float dz = b.pos[2] - az;
-                    
-                    // Calculate distance squared directly
-                    const float dist2 = dx*dx + dy*dy + dz*dz;
+                    Particle& b = array.at(j);
 
-                    // Skip calculation if particles are too close
-                    if (dist2 > overlapDistance2)
+                    // Find the mutual force vector between the two vectors.
+                    // This includes an electrostatic component and a magnetic component.
+
+                    // Calculate mutual quadrature = distance squared.
+                    PhysicsVector dr = b.pos - a.pos;
+                    float dist2 = Quadrature(dr);
+
+                    // If two particles are very close to each other, consider them overlapping,
+                    // and consider there to be zero force between them. This prevents division by
+                    // zero (or by very small distances), resulting in destabilizing the simulation.
+                    if (dist2 > overlapDistance * overlapDistance)
                     {
-                        // Use fast inverse square root approximation
-                        const float invDist = fastInvSqrt(dist2);
-                        const float dist = 1.0f / invDist;
-                        const float invDist3 = invDist * invDist * invDist;
-                        
-                        // Force calculation factor: (dist - 1/dist³)
-                        const float electroFactor = dist - invDist3;
-                        
-                        // Cache velocity calculation results (only calculated when needed)
-                        PhysicsVector bv_temp = EffectiveVelocity(b.vel, speedLimit);
-                        const float dvx = bv_temp[0] - avx;
-                        const float dvy = bv_temp[1] - avy;
-                        const float dvz = bv_temp[2] - avz;
-                        
-                        // Calculate magnetic component efficiently
-                        const float magFactor = magneticCoupling * invDist3;
-                        
-                        // Compute force components with minimal operations
-                        const float fx = electroFactor * dx + magFactor * (dvy*dz - dvz*dy);
-                        const float fy = electroFactor * dy + magFactor * (dvz*dx - dvx*dz);
-                        const float fz = electroFactor * dz + magFactor * (dvx*dy - dvy*dx);
-                        
-                        // Apply forces
-                        a.force[0] += fx;
-                        a.force[1] += fy;
-                        a.force[2] += fz;
-                        
-                        b.force[0] -= fx;
-                        b.force[1] -= fy;
-                        b.force[2] -= fz;
+                        float dist = std::sqrt(dist2);
+                        float dist3 = dist2 * dist;
+
+                        // Use effective velocities, not raw velocities, to calculate magnetic cross product.
+                        PhysicsVector av = EffectiveVelocity(a.vel, speedLimit);
+                        PhysicsVector bv = EffectiveVelocity(b.vel, speedLimit);
+
+                        // Calculate the magnetic component of the mutual force and include it in the vector sum.
+                        PhysicsVector f = (dist - 1/dist3)*dr + (magneticCoupling / dist3)*Cross(bv - av, dr);
+
+                        // Forces always act in equal and opposite pairs.
+                        a.force += f;
+                        b.force -= f;
                     }
                 }
             }
@@ -252,6 +146,7 @@ namespace Sapphire
             // Calculate the forces at the existing configuration.
             calculateForces(curr);
 
+            #ifndef METAMODULE
             // Do a naive extrapolation to the midpoint of the time interval.
             // We assume the resulting configuration closely approximates the mean
             // conditions over the whole time interval.
@@ -263,6 +158,7 @@ namespace Sapphire
             // Pretend like the midpoint forces apply at the beginning of the time interval.
             for (int i = 0; i < n; ++i)
                 curr[i].force = next[i].force;
+            #endif
 
             // Extrapolate to the full time interval.
             extrapolate(dt);
@@ -278,7 +174,6 @@ namespace Sapphire
 
         float filter(float sampleRate, int i, int k, float x)
         {
-            #ifndef METAMODULE
             if (mixFilt > 0)
             {
                 // DC rejection is enabled, or we are crossfading.
@@ -286,7 +181,6 @@ namespace Sapphire
                 float y = filtersNeedReset ? filt.SnapHiPass(x) : filt.UpdateHiPass(x, sampleRate);
                 return (1-mixFilt)*x + mixFilt*y;
             }
-            #endif
             return x;
         }
 
@@ -343,11 +237,6 @@ namespace Sapphire
         void enableAutomaticOversample()
         {
             fixedOversample = 0;
-        }
-
-        int getOversamplingRate() const
-        {
-            return fixedOversample;
         }
 
         bool getAgcEnabled() const
